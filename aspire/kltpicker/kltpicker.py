@@ -13,7 +13,7 @@ from src.aspire.aspire.class_averaging import lgwt
 from aspire.aspire.preprocessor import PreProcessor
 from aspire.aspire.utils.array_utils import cryo_epsds
 import matplotlib.pyplot as plt
-# added a comment to see if working
+# added a comment to see
 # for testing, will be removed
 PARTICLE_SIZE = 300
 MICRO_PATH = '/scratch/dalit/KLTpicker/sizlessPicking/300&10028/'
