@@ -9,11 +9,13 @@ import scipy.special as ssp
 from scipy import signal,interpolate
 from scipy.ndimage import correlate, uniform_filter
 from scipy.fftpack import fftshift
-from src.aspire.aspire.class_averaging import lgwt
-from aspire.aspire.preprocessor import PreProcessor
-from aspire.aspire.utils.array_utils import cryo_epsds
+from aspire.utils.common import lgwt
+from aspire.preprocessor.downsample import downsample
+from aspire.preprocessor.prewhiten  import cryo_prewhiten
+from aspire.preprocessor.prewhiten import cryo_epsds
 import matplotlib.pyplot as plt
-# added a comment to see
+
+
 # for testing, will be removed
 PARTICLE_SIZE = 300
 MICRO_PATH = '/scratch/dalit/KLTpicker/sizlessPicking/300&10028/'
@@ -187,8 +189,8 @@ class KLTPicker:
         radmax = np.floor((self.patch_size_func - 1) / 2)
         x = np.arange(-radmax, radmax+1, 1).astype('float32')
         X, Y = np.meshgrid(x, x)
-        rsamp = np.sqrt(np.square(X)+np.square(Y)).flatten()
-        theta = np.arctan2(Y, X).flatten()
+        rsamp = np.sqrt(np.square(X)+np.square(Y)).transpose().flatten()
+        theta = np.arctan2(Y, X).transpose().flatten()
         quad_ker_sample_points = lgwt(NUM_QUAD_KER, 0, np.pi)
         rho = quad_ker_sample_points.x
         quad_ker = quad_ker_sample_points.w
@@ -226,7 +228,6 @@ class KLTPicker:
 
     def get_micrographs(self):
         micrographs = []  # maybe in the first place this should be an array
-        preprocessor = PreProcessor()
         for mrc_file in self.mrc_files:
             mrc = mrcfile.open(mrc_file)
             mrc_data = mrc.data.astype('float64').transpose()
@@ -234,11 +235,11 @@ class KLTPicker:
             mrc_size = min(mrc_data.shape)
             mrc_data = mrc_data[0:mrc_size, 0:mrc_size]
             mrc_data = np.rot90(mrc_data)
-            data = preprocessor.downsample(mrc_data, np.floor(MG_SCALE * mrc.shape[0]))
+            data = downsample(mrc_data[np.newaxis, :, :], int(np.floor(MG_SCALE * mrc_data.shape[0])))[0]
             if np.mod(data.shape[0], 2) == 0:  # we need odd size
                 data = data[0:-1, 0:-1]
             pic = data   # for figures before standardization.
-            data -= np.mean(data.flatten())
+            data -= np.mean(data.transpose().flatten())
             data /= np.linalg.norm(data, 'fro')  # normalization
             mc_size = data.shape[0]
             micrograph = Micrograph(data, pic, mc_size, mrc_file, mrc_size)
@@ -301,7 +302,7 @@ class Micrograph:
             if np.count_nonzero(np.isnan(psd_block)) != 0:
                 print("got NaN")
             [r_block, r] = radial_avg(psd_block, L)
-            block_var = np.var(noisemc_block.flatten(), ddof=1)
+            block_var = np.var(noisemc_block.transpose().flatten(), ddof=1)
             psd_rad = np.abs(spline(r*np.pi, r_block, rho_samp))
             psd_mat = np.reshape(psd_rad[idx], [num_quads, num_quads])
             var_psd = (1/(2*np.pi)**2) * (nodes@psd_mat@nodes)
@@ -317,7 +318,7 @@ class Micrograph:
         var_mat = std_mat**2
         cut = int((patch_size - 1) / 2 + 1)
         var_mat = var_mat[cut:-cut, cut:-cut]
-        var_vec = var_mat.flatten()
+        var_vec = var_mat.transpose().flatten()
         var_vec.sort()
         j = np.floor(0.25 * var_vec.size).astype('int')
         noise_var_approx = np.mean(var_vec[0:j])
@@ -351,7 +352,7 @@ class Micrograph:
         self.approx_scaling = clean_var / clean_var_psd
         self.stop_par = stop_par
 
-    def prewhiten(self):
+    def prewhiten_micrograph(self):
         L = np.floor((self.micrograph.shape[0] - 1) / 2).astype('int')
         x = np.linspace(-1, 1, 2 * L + 1) * np.pi
         X, Y = np.meshgrid(x, x)
@@ -359,8 +360,7 @@ class Micrograph:
         rad_samp, idx = np.unique(rad_mat, return_inverse=True)
         noise_psd_nodes = np.abs(spline(self.r * np.pi, self.approx_noise_psd, rad_samp))
         noise_psd_mat = np.reshape(noise_psd_nodes[idx], [2 * L + 1, 2 * L + 1])
-        preprocessor = PreProcessor()
-        noise_mc_prewhite = preprocessor.cryo_prewhiten(self.noise_mc[:, :, np.newaxis], noise_psd_mat)
+        noise_mc_prewhite = cryo_prewhiten(self.noise_mc[:, :, np.newaxis], noise_psd_mat)
         noise_mc_prewhite = noise_mc_prewhite[0][:, :, 0]
         noise_mc_prewhite -= np.mean(noise_mc_prewhite)
         noise_mc_prewhite /= np.linalg.norm(noise_mc_prewhite, 'fro')
@@ -538,16 +538,32 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
 
 def main():
     kltpicker = KLTPicker(PARTICLE_SIZE, MICRO_PATH, OUTPUT_PATH)
-    kltpicker.preprocess()
+    #kltpicker.preprocess()
+    #  for testing, will be removed:
+    kltpicker.j_samp = np.load('j_samp.npy')
+    kltpicker.cosine = np.load('cosine.npy')
+    kltpicker.sine = np.load('sine.npy')
+    kltpicker.j_r_rho = np.load('j_r_rho.npy')
+    kltpicker.quad_ker = np.load('quad_ker.npy')
+    kltpicker.quad_nys = np.load('quad_nys.npy')
+    kltpicker.rho = np.load('rho.npy')
+    kltpicker.rsamp_r = np.load('rsamp_r.npy')
+    kltpicker.r_r = np.load('r_r.npy')
     kltpicker.get_micrographs()
     for micrograph in kltpicker.micrographs:
         micrograph.cutoff_filter(kltpicker.patch_size)
+        print("done cutoff_filter")
         micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
-        micrograph.prewhiten()
+        print("done estimate_rpsd")
+        micrograph.prewhiten_micrograph()
+        print("done prewhiten")
         micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
+        print("done estimate_rpsd again")
         micrograph.psd = np.abs(spline(np.pi * micrograph.r, micrograph.approx_clean_psd, kltpicker.rho))
         micrograph.construct_klt_templates(kltpicker)
+        print("done construct klt_templates")
         micrograph.detect_particles(kltpicker)
+        print("done detect_particles")
     print("woohoo")
 
 
