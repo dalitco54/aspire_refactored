@@ -317,7 +317,7 @@ class Micrograph:
         std_mat = stdfilter(self.noise_mc, patch_size)
         var_mat = std_mat**2
         cut = int((patch_size - 1) / 2 + 1)
-        var_mat = var_mat[cut:-cut, cut:-cut]
+        var_mat = var_mat[cut-1:-cut, cut-1:-cut]
         var_vec = var_mat.transpose().flatten()
         var_vec.sort()
         j = np.floor(0.25 * var_vec.size).astype('int')
@@ -344,12 +344,11 @@ class Micrograph:
         s_mean_var_psd = (1 / (2 * np.pi) ** 2) * (nodes@s_mean_psd_mat@nodes)
         clean_var_psd = (1 / (2 * np.pi) ** 2)*(nodes@clean_psd_mat@nodes)
         clean_var = s_mean_var_psd - noise_var_approx
-        noise_psd_approx_sigma += np.median(noise_psd_approx_sigma)/10
+        self.approx_scaling = clean_var / clean_var_psd
         self.approx_clean_psd = self.approx_scaling * approx_clean_psd
         self.approx_noise_psd = noise_psd_approx_sigma
         self.approx_noise_var = noise_var_approx
         self.r = r
-        self.approx_scaling = clean_var / clean_var_psd
         self.stop_par = stop_par
 
     def prewhiten_micrograph(self):
@@ -389,9 +388,9 @@ class Micrograph:
         c_idx = np.arange(0, kltpicker.max_order)
         r_idx = repmat(r_idx, 1, kltpicker.max_order)
         c_idx = repmat(c_idx, NUM_QUAD_NYS, 1)
-        eig_val_tot = eig_val_tot.flatten()
-        r_idx = r_idx.flatten()
-        c_idx = c_idx.flatten()
+        eig_val_tot = eig_val_tot.transpose().flatten()
+        r_idx = r_idx.transpose().flatten()
+        c_idx = c_idx.transpose().flatten()
         idx = np.argsort(eig_val_tot)
         eig_val_tot = np.sort(eig_val_tot)
         r_idx = r_idx[idx, 1]
@@ -435,7 +434,7 @@ class Micrograph:
         for i in range(self.num_of_func):
             tmp_func = np.reshape(eig_func_stat[:, i], (kltpicker.patch_size_func, kltpicker.patch_size_func))
             tmp_func[self.rad_mat > np.floor((kltpicker.patch_sz_func - 1) / 2)] = 0
-            eig_func_stat[:, i] = tmp_func.flatten()
+            eig_func_stat[:, i] = tmp_func.transpose().flatten()
         [q, r] = np.linalg.qr(eig_func_stat, 'complete')
         self.r = self.r[0:self.num_of_func, 0:self.num_of_func]
         kappa = self.r @ np.diag(eig_val_stat) @ self.r + self.approx_noise_var * np.eye(self.num_of_func)
@@ -517,7 +516,7 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
     iter_pick = 0
     while iter_pick <= max_iter and oper(oper_param, threshold):
         max_index = np.argmax(scoring_mat)
-        oper_param = scoring_mat.flatten()[max_index]
+        oper_param = scoring_mat.transpose().flatten()[max_index]
         [index_row, index_col] = np.unravel_index(max_index, shape)
         ind_row_patch = (index_row - 1) + patch_sz_func
         ind_col_patch = (index_col - 1) + patch_sz_func
@@ -540,25 +539,34 @@ def main():
     kltpicker = KLTPicker(PARTICLE_SIZE, MICRO_PATH, OUTPUT_PATH)
     #kltpicker.preprocess()
     #  for testing, will be removed:
-    kltpicker.j_samp = np.load('j_samp.npy')
-    kltpicker.cosine = np.load('cosine.npy')
-    kltpicker.sine = np.load('sine.npy')
-    kltpicker.j_r_rho = np.load('j_r_rho.npy')
-    kltpicker.quad_ker = np.load('quad_ker.npy')
-    kltpicker.quad_nys = np.load('quad_nys.npy')
-    kltpicker.rho = np.load('rho.npy')
-    kltpicker.rsamp_r = np.load('rsamp_r.npy')
-    kltpicker.r_r = np.load('r_r.npy')
+    kltpicker.j_samp = np.load('/home/dalitcohen/Documents/kltdata/j_samp.npy')
+    kltpicker.cosine = np.load('/home/dalitcohen/Documents/kltdata/cosine.npy')
+    kltpicker.sine = np.load('/home/dalitcohen/Documents/kltdata/sine.npy')
+    kltpicker.j_r_rho = np.load('/home/dalitcohen/Documents/kltdata/j_r_rho.npy')
+    kltpicker.quad_ker = np.load('/home/dalitcohen/Documents/kltdata/quad_ker.npy')
+    kltpicker.quad_nys = np.load('/home/dalitcohen/Documents/kltdata/quad_nys.npy')
+    kltpicker.rho = np.load('/home/dalitcohen/Documents/kltdata/rho.npy')
+    kltpicker.rsamp_r = np.load('/home/dalitcohen/Documents/kltdata/rsamp_r.npy')
+    kltpicker.r_r = np.load('/home/dalitcohen/Documents/kltdata/r_r.npy')
     kltpicker.get_micrographs()
     for micrograph in kltpicker.micrographs:
-        micrograph.cutoff_filter(kltpicker.patch_size)
-        print("done cutoff_filter")
-        micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
-        print("done estimate_rpsd")
-        micrograph.prewhiten_micrograph()
-        print("done prewhiten")
-        micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
-        print("done estimate_rpsd again")
+        #micrograph.cutoff_filter(kltpicker.patch_size)
+        #print("done cutoff_filter")
+        #micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
+        #micrograph.approx_noise_psd += np.median(micrograph.approx_noise_psd)/10
+        #print("done estimate_rpsd")
+        #micrograph.prewhiten_micrograph()
+        #print("done prewhiten")
+        #micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
+        #print("done estimate_rpsd again")
+        micrograph.rad_mat = np.load('/home/dalitcohen/Documents/kltdata/rad_mat.npy')
+        micrograph.r = np.load('/home/dalitcohen/Documents/kltdata/r.npy')
+        micrograph.approx_clean_psd = np.load('/home/dalitcohen/Documents/kltdata/approx_clean_psd.npy')
+        micrograph.approx_noise_psd = np.load('/home/dalitcohen/Documents/kltdata/approx_noise_psd.npy')
+        micrograph.approx_noise_var = np.load('/home/dalitcohen/Documents/kltdata/approx_noise_var.npy')
+        micrograph.micrograph = np.load('/home/dalitcohen/Documents/kltdata/micrograph.npy')
+        micrograph.noise_mc = np.load('/home/dalitcohen/Documents/kltdata/noise_mc.npy')
+        micrograph.approx_scaling = np.load('/home/dalitcohen/Documents/kltdata/approx_scaling.npy')
         micrograph.psd = np.abs(spline(np.pi * micrograph.r, micrograph.approx_clean_psd, kltpicker.rho))
         micrograph.construct_klt_templates(kltpicker)
         print("done construct klt_templates")
