@@ -14,6 +14,8 @@ from aspire.preprocessor.downsample import downsample
 from aspire.preprocessor.prewhiten  import cryo_prewhiten
 from aspire.preprocessor.prewhiten import cryo_epsds
 from dev_utils import *
+from scipy.signal import fftconvolve
+
 import matplotlib.pyplot as plt
 
 
@@ -454,7 +456,7 @@ class Micrograph:
         kappa = (r @ np.diag(eig_val_stat) @ r.transpose()) + (self.approx_noise_var * np.eye(self.num_of_func))
         kappa_inv = np.linalg.inv(kappa)
         t_mat = (1 / self.approx_noise_var) * np.eye(self.num_of_func) - kappa_inv
-        mu = np.linalg.slogdet((1 / self.approx_noise_var) * kappa)[1]
+        mu = np.linalg.slogdet((1 / self.approx_noise_var) * kappa)[1]  #good
         last_block = self.mc_size - kltpicker.patch_size_func + 1
         num_of_patch = last_block
         v = np.zeros((num_of_patch, num_of_patch, self.num_of_func))
@@ -462,16 +464,16 @@ class Micrograph:
         for i in range(self.num_of_func):
             print("%d/%d"%(i,self.num_of_func))
             cnt += 1
-            q_tmp = np.reshape(q[:,i], (kltpicker.patch_size_func, kltpicker.patch_size_func))
+            q_tmp = np.reshape(q[:,i], (kltpicker.patch_size_func, kltpicker.patch_size_func)).transpose()
             q_tmp = q_tmp - np.mean(q_tmp)
-            q_tmp = np.flip(np.flip(q_tmp, 1), 1)
+            q_tmp = np.flip(q_tmp, 1)
             if kltpicker.gpu_use == 1:
                 pass
                 # noiseMcGpu = gpuArray(single(noiseMc))
                 # v_tmp = conv2(noiseMcGpu, q_tmp, 'valid')
                 # v(:,:, i) = single(gather(v_tmp))
             else:
-                v_tmp = signal.convolve2d(self.noise_mc, q_tmp, 'valid')
+                v_tmp = fftconvolve(self.noise_mc, q_tmp, 'valid')
                 v[:, :, i] = v_tmp.astype('single')
         log_test_mat = np.zeros((num_of_patch, num_of_patch))
         cnt = 0
@@ -583,12 +585,12 @@ def main():
         micrograph.noise_mc = mat_to_npy('noiseMc','/home/dalitcohen/Documents/kltdata/matlab')
         # micrograph.psd = np.abs(spline(np.pi * micrograph.r, micrograph.approx_clean_psd, kltpicker.rho))
         micrograph.psd = mat_to_npy_vec('psd', '/home/dalitcohen/Documents/kltdata/matlab')
-        micrograph.construct_klt_templates(kltpicker)
-        # micrograph.eig_func = mat_to_npy('eigFun', '/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.eig_val = mat_to_npy_vec('eigVal', '/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.num_of_func = 400
+        #micrograph.construct_klt_templates(kltpicker)
+        micrograph.eig_func = mat_to_npy('eigFun', '/home/dalitcohen/Documents/kltdata/matlab')
+        micrograph.eig_val = mat_to_npy_vec('eigVal', '/home/dalitcohen/Documents/kltdata/matlab')
+        micrograph.num_of_func = 400
 
-        print("done construct klt_templates")
+        # print("done construct klt_templates")
         micrograph.detect_particles(kltpicker)
         print("done detect_particles")
     print("woohoo")
