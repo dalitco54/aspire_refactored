@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 # for testing, will be removed
 PARTICLE_SIZE = 300
 MICRO_PATH = '/scratch/dalit/KLTpicker/sizlessPicking/300&10028/'
-OUTPUT_PATH = '/scratch/dalit/K/kLTpicker/sizlessPicking/300&10028/pick'
+OUTPUT_PATH = '/scratch/dalit/KLTpicker/sizlessPicking/300&10028/pick'
 MAX_ITER = 6*(10**4)
 MG_SCALE = 100 / PARTICLE_SIZE
 MAX_ORDER = 100
@@ -164,12 +164,14 @@ class KLTPicker:
     """   """
     def __init__(self, particle_size, input_directory, output_directory, gpu_use):
         self.particle_size = int(particle_size)
-        self.input_directory = input_directory
-        self.output_directory = output_directory
+        self.input_dir = input_directory
+        self.output_dir = output_directory
+        self.output_noise = '%s/PickedNoise_ParticleSize_%d' % (output_directory, particle_size)
+        self.output_particles = '%s/PickedParticles_ParticleSize_%d' % (output_directory, particle_size)
         self.gpu_use = GPU_USE
         self.mgscale = MG_SCALE
         self.max_order = MAX_ORDER
-        self.mrc_files = glob.glob("%s/*.mrc" % self.input_directory)
+        self.mrc_files = glob.glob("%s/*.mrc" % self.input_dir)
         self.micrographs = np.array([])
         self.micrograph_pics = np.array([])
         self.quad_ker = 0
@@ -259,7 +261,7 @@ class KLTPicker:
             data -= np.mean(data.transpose().flatten())
             data /= np.linalg.norm(data, 'fro')  # normalization
             mc_size = data.shape[0]
-            micrograph = Micrograph(data, pic, mc_size, mrc_file, mrc_size)
+            micrograph = Micrograph(data, pic, mc_size, mrc_file.split('/')[-1], mrc_size)
             micrographs.append(micrograph)
         micrographs = np.array(micrographs)
         self.micrographs = micrographs
@@ -445,50 +447,51 @@ class Micrograph:
         self.num_of_func = num_of_fun
 
     def detect_particles(self, kltpicker):
-        eig_func_stat = self.eig_func[:, 0:self.num_of_func]
-        eig_val_stat = self.eig_val[0:self.num_of_func]
-        for i in range(self.num_of_func):
-            tmp_func = np.reshape(eig_func_stat[:, i], (kltpicker.patch_size_func, kltpicker.patch_size_func))
-            tmp_func[kltpicker.rad_mat > np.floor((kltpicker.patch_size_func - 1) / 2)] = 0
-            eig_func_stat[:, i] = tmp_func.flatten()
-        [q, r] = np.linalg.qr(eig_func_stat, 'complete')
-        r = r[0:self.num_of_func, 0:self.num_of_func]
-        kappa = (r @ np.diag(eig_val_stat) @ r.transpose()) + (self.approx_noise_var * np.eye(self.num_of_func))
-        kappa_inv = np.linalg.inv(kappa)
-        t_mat = (1 / self.approx_noise_var) * np.eye(self.num_of_func) - kappa_inv
-        mu = np.linalg.slogdet((1 / self.approx_noise_var) * kappa)[1]  #good
-        last_block = self.mc_size - kltpicker.patch_size_func + 1
-        num_of_patch = last_block
-        v = np.zeros((num_of_patch, num_of_patch, self.num_of_func))
-        cnt = 0
-        for i in range(self.num_of_func):
-            print("%d/%d"%(i,self.num_of_func))
-            cnt += 1
-            q_tmp = np.reshape(q[:,i], (kltpicker.patch_size_func, kltpicker.patch_size_func)).transpose()
-            q_tmp = q_tmp - np.mean(q_tmp)
-            q_tmp = np.flip(q_tmp, 1)
-            if kltpicker.gpu_use == 1:
-                pass
-                # noiseMcGpu = gpuArray(single(noiseMc))
-                # v_tmp = conv2(noiseMcGpu, q_tmp, 'valid')
-                # v(:,:, i) = single(gather(v_tmp))
-            else:
-                v_tmp = fftconvolve(self.noise_mc, q_tmp, 'valid')
-                v[:, :, i] = v_tmp.astype('single')
-        log_test_mat = np.zeros((num_of_patch, num_of_patch))
-        cnt = 0
-        for j in range(num_of_patch):
-            cnt += 1
-            vc = np.reshape(v[:, j, :], (num_of_patch, num_of_patch, 1))
-            log_test_mat[:, j] = np.sum((vc * t_mat) * vc, 2) - mu
-        if kltpicker.gpu_use == 1:
-            pass
-            # neigh = gpuArray(ones(kltpicker.patch_sz_func))
-            # logTestN = gather(conv2(logTestMat, neigh, 'valid'))
-        else:
-            neigh = np.ones(kltpicker.patch_size_func)
-            log_test_n = signal.convolve2d(log_test_mat, neigh, 'valid')
-        [num_picked_particles, num_picked_noise] = picking_from_scoring_mat(log_test_n, self.mrc_name, kltpicker)
+        # eig_func_stat = self.eig_func[:, 0:self.num_of_func]
+        # eig_val_stat = self.eig_val[0:self.num_of_func]
+        # for i in range(self.num_of_func):
+        #     tmp_func = np.reshape(eig_func_stat[:, i], (kltpicker.patch_size_func, kltpicker.patch_size_func))
+        #     tmp_func[kltpicker.rad_mat > np.floor((kltpicker.patch_size_func - 1) / 2)] = 0
+        #     eig_func_stat[:, i] = tmp_func.flatten()
+        # [q, r] = np.linalg.qr(eig_func_stat, 'complete')
+        # r = r[0:self.num_of_func, 0:self.num_of_func]
+        # kappa = (r @ np.diag(eig_val_stat) @ r.transpose()) + (self.approx_noise_var * np.eye(self.num_of_func))
+        # kappa_inv = np.linalg.inv(kappa)
+        # t_mat = (1 / self.approx_noise_var) * np.eye(self.num_of_func) - kappa_inv
+        # mu = np.linalg.slogdet((1 / self.approx_noise_var) * kappa)[1]  #good
+        # last_block = self.mc_size - kltpicker.patch_size_func + 1
+        # num_of_patch = last_block
+        # v = np.zeros((num_of_patch, num_of_patch, self.num_of_func))
+        # cnt = 0
+        # for i in range(self.num_of_func):
+        #     print("%d/%d"%(i,self.num_of_func))
+        #     cnt += 1
+        #     q_tmp = np.reshape(q[:,i], (kltpicker.patch_size_func, kltpicker.patch_size_func)).transpose()
+        #     q_tmp = q_tmp - np.mean(q_tmp)
+        #     q_tmp = np.flip(q_tmp, 1)
+        #     if kltpicker.gpu_use == 1:
+        #         pass
+        #         # noiseMcGpu = gpuArray(single(noiseMc))
+        #         # v_tmp = conv2(noiseMcGpu, q_tmp, 'valid')
+        #         # v(:,:, i) = single(gather(v_tmp))
+        #     else:
+        #         v_tmp = fftconvolve(self.noise_mc, q_tmp, 'valid')
+        #         v[:, :, i] = v_tmp.astype('single')  # different signs for values compared to matlab output, possible issue.
+        # log_test_mat = np.zeros((num_of_patch, num_of_patch))
+        # cnt = 0
+        # for j in range(num_of_patch):
+        #     cnt += 1
+        #     vc = np.reshape(v[:, j, :], (num_of_patch, self.num_of_func))
+        #     log_test_mat[:, j] = np.sum((vc @ t_mat) * vc, 1) - mu
+        # if kltpicker.gpu_use == 1:
+        #     pass
+        #     # neigh = gpuArray(ones(kltpicker.patch_sz_func))
+        #     # logTestN = gather(conv2(logTestMat, neigh, 'valid'))
+        # else:
+        #     neigh = np.ones((kltpicker.patch_size_func, kltpicker.patch_size_func))
+        #     log_test_n = fftconvolve(log_test_mat, neigh, 'valid')
+        log_test_n = mat_to_npy('logTestN', '/home/dalitcohen/Documents/kltdata/matlab') # very good
+        [num_picked_particles, num_picked_noise] = picking_from_scoring_mat(log_test_n, self.mrc_name, kltpicker, self.mg_big_size)
         return num_picked_particles, num_picked_noise
 
 
@@ -501,28 +504,30 @@ def picking_from_scoring_mat(log_test_n, mrc_name, kltpicker, mg_big_size):
     if kltpicker.num_of_particles == -1:
         num_picked_particles = write_output_files(scoring_mat, shape, r_del, np.iinfo(np.int32(10)).max, op.gt,
                                                   kltpicker.threshold+1, kltpicker.threshold, kltpicker.patch_size_func,
-                                                  row_idx, col_idx, kltpicker.coordinates_path_particle, mrc_name,
-                                                  kltpicker.mgscale, mg_big_size)
+                                                  row_idx, col_idx, kltpicker.output_particles, mrc_name,
+                                                  kltpicker.mgscale, mg_big_size, -np.inf, kltpicker.patch_size_pick_box)
     else:
         num_picked_particles = write_output_files(scoring_mat, shape, r_del, kltpicker.num_of_particles, op.gt,
                                                   kltpicker.threshold+1, kltpicker.threshold, kltpicker.patch_size_func,
-                                                  row_idx, col_idx, kltpicker.coordinates_path_particle, mrc_name,
-                                                  kltpicker.mgscale, mg_big_size)
+                                                  row_idx, col_idx, kltpicker.output_particles, mrc_name,
+                                                  kltpicker.mgscale, mg_big_size, -np.inf, kltpicker.patch_size_pick_box)
     if kltpicker.num_of_noise_images != 0:
         num_picked_noise = write_output_files(scoring_mat, shape, r_del, kltpicker.num_of_noise_images, op.lt,
                                               kltpicker.threshold-1, kltpicker.threshold, kltpicker.patch_size_func,
-                                              row_idx, col_idx, kltpicker. coordinates_path_noise, mrc_name,
-                                              kltpicker.mgscale, mg_big_size)
+                                              row_idx, col_idx, kltpicker. output_noise, mrc_name,
+                                              kltpicker.mgscale, mg_big_size, np.inf, kltpicker.patch_size_pick_box)
     else:
         num_picked_noise = 0
     return num_picked_particles, num_picked_noise
 
 
 def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, threshold, patch_size_func, row_idx,
-                       col_idx, output_path, mrc_name, mgscale, mg_big_size):
+                       col_idx, output_path, mrc_name, mgscale, mg_big_size, replace_param, patch_size_pick_box):
     num_picked = 0
     box_path = output_path+'/box'
     star_path = output_path+'/star'
+    if not os.path.isdir(output_path):
+        os.mkdir(output_path)
     if not os.path.isdir(box_path):
         os.mkdir(box_path)
     if not os.path.isdir(star_path):
@@ -532,21 +537,23 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
     star_file.write('data_\n\nloop_\n_rlnCoordinateX #1\n_rlnCoordinateY #2\n')
     iter_pick = 0
     while iter_pick <= max_iter and oper(oper_param, threshold):
-        max_index = np.argmax(scoring_mat)
+        max_index = np.argmax(scoring_mat.transpose().flatten())
         oper_param = scoring_mat.transpose().flatten()[max_index]
-        [index_row, index_col] = np.unravel_index(max_index, shape)
+        print(oper_param)
+        [index_col, index_row] = np.unravel_index(max_index, shape)
         ind_row_patch = (index_row - 1) + patch_size_func
         ind_col_patch = (index_col - 1) + patch_size_func
         row_idx_b = row_idx - index_row
         col_idx_b = col_idx - index_col
         rsquare = row_idx_b**2 + col_idx_b**2
-        scoring_mat[rsquare <= (r_del**2)] = np.inf
-        box_file.write('%i\t%i\t%i\t%i\n' % ((1 / mgscale) * (ind_col_patch - r_del / 2),
-                                        (mg_big_size + 1) - (1 / mgscale) * (ind_row_patch + r_del / 2),
-                                        (1 / mgscale) * r_del, (1 / mgscale) * r_del))
-        star_file.write('%i\t%i\n' % ((1 / mgscale) * ind_col_patch, (mg_big_size + 1) - (1 / mgscale) * ind_row_patch))
+        scoring_mat[rsquare <= (r_del**2)] = replace_param
+        box_file.write('%i\t%i\t%i\t%i\n' % ((1 / mgscale) * (ind_col_patch + 1 - np.floor(patch_size_pick_box / 2)),
+                                        (mg_big_size + 1) - (1 / mgscale) * (ind_row_patch + 1 + np.floor(patch_size_pick_box / 2)),
+                                        (1 / mgscale) * patch_size_pick_box, (1 / mgscale) * patch_size_pick_box))
+        star_file.write('%i\t%i\n' % ((1 / mgscale) * (ind_col_patch + 1), (mg_big_size + 1) - ((1 / mgscale) * (ind_row_patch + 1))))
         iter_pick += 1
         num_picked += 1
+        print("%d\tpmax: %f"%(num_picked, oper_param))
     star_file.close()
     box_file.close()
     return num_picked
