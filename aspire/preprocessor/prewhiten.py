@@ -48,9 +48,12 @@ def cryo_prewhiten(proj, noise_response, rel_threshold=None):
 
     delta = np.finfo(proj.dtype).eps
 
-    resolution, _, num_images = proj.shape
-    l = resolution // 2
-    k = int(np.ceil(noise_response.shape[0] / 2))
+    L1, L2, num_images = proj.shape
+    l1 = L1 // 2
+    l2 = L2 // 2
+    K1, K2 = noise_response.shape
+    k1 = int(np.ceil(K1 / 2))
+    k2 = int(np.ceil(K2 / 2))
 
     filter_var = np.sqrt(noise_response)
     filter_var /= np.linalg.norm(filter_var)
@@ -63,29 +66,32 @@ def cryo_prewhiten(proj, noise_response, rel_threshold=None):
     else:
         raise NotImplementedError('not implemented for rel_threshold != None')
 
-    start_idx = k - l - 1
-    end_idx = k + l
-    if resolution % 2 == 0:
-        end_idx -= 1
-
     fnz = filter_var[nzidx]
     one_over_fnz = 1 / fnz
 
     # matrix with 1/fnz in nzidx, 0 elsewhere
-    one_over_fnz_as_mat = np.zeros((noise_response.shape[0], noise_response.shape[0]))
+    one_over_fnz_as_mat = np.zeros((noise_response.shape[0], noise_response.shape[1]))
     one_over_fnz_as_mat[nzidx] += one_over_fnz
-    pp = np.zeros((noise_response.shape[0], noise_response.shape[0]))
-    p2 = np.zeros((num_images, resolution, resolution), dtype='complex128')
+    pp = np.zeros((noise_response.shape[0], noise_response.shape[1]))
+    p2 = np.zeros((num_images, L1, L2), dtype='complex128')
     proj = proj.transpose((2, 0, 1)).copy()
 
-    for i in range(num_images):
-        pp[start_idx:end_idx, start_idx:end_idx] = proj[i]
+    row_start_idx = k1 - l1 - 1
+    row_end_idx = k1 + l1
+    col_start_idx = k2 - l2 - 1
+    col_end_idx = k2 + l2
 
+    if L1 % 2 == 0:
+        row_end_idx -= 1
+    if L2 % 2 == 0:
+        col_end_idx -= 1
+
+    for i in range(num_images):
+        pp[row_start_idx:row_end_idx, col_start_idx:col_end_idx] = proj[i]
         fp = common.fast_cfft2(pp)
         fp *= one_over_fnz_as_mat
         pp2 = common.fast_icfft2(fp)
-
-        p2[i] = np.real(pp2[start_idx:end_idx, start_idx:end_idx])
+        p2[i] = np.real(pp2[row_start_idx:row_end_idx, col_start_idx:col_end_idx])
 
     # change back to x,y,z convention
     proj = p2.real.transpose((1, 2, 0)).copy()
