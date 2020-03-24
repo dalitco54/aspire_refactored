@@ -81,9 +81,8 @@ def cryo_prewhiten(proj, noise_response, rel_threshold=None):
     col_start_idx = k2 - l2 - 1
     col_end_idx = k2 + l2
 
-    if L1 % 2 == 0:
+    if L1 % 2 == 0 and L2 % 2 == 0:
         row_end_idx -= 1
-    if L2 % 2 == 0:
         col_end_idx -= 1
 
     for i in range(num_images):

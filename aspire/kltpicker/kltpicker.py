@@ -194,30 +194,20 @@ def als_find_min(sreal, eps, max_iter):
     return approx_clean_psd, approx_noise_psd, alpha_approx, stop_par
 
 
-# def spline(x, y, xq):
-#     """
-#     returns a vector of interpolated values s corresponding to the query points in xq. The values of s are determined by cubic spline interpolation of x and y.
-#     """
-#     interpolator = interpolate.InterpolatedUnivariateSpline(x, y)
-#     return interpolator(xq)
-
-
-def trigcardinal(x, n):
-    if n%2 == 1:
-        return np.sin(n * np.pi * x / 2) / (n * np.sin(np.pi * x / 2))
-    else:
-        return np.sin(n * np.pi * x / 2) / (n * np.tan(np.pi * x / 2))
-
-
 def trig_interpolation(x, y, xq):
     n = x.size
     h = 2 / n
     scale = (x[1] - x[0]) / h
-    x /= scale
-    xq /= scale
-    p = np.zeros((xq.size, xq.size))
+    xs = x / scale
+    xi = xq / scale
+    p = np.zeros(xi.size)
     for k in range(n):
-        p = p + y[k] * trigcardinal(xq - x[k], n)
+        if n % 2 == 1:
+            a = np.sin(n * np.pi * (xi - xs[k]) / 2) / (n * np.sin(np.pi * (xi - xs[k]) / 2))
+        else:
+            a = np.sin(n * np.pi * (xi - xs[k]) / 2) / (n * np.tan(np.pi * (xi - xs[k]) / 2))
+        a[(xi - xs[k]) == 0] = 1
+        p += y[k] * a
     return p
 
 
@@ -457,10 +447,10 @@ class Micrograph:
 
     def estimate_rpsd(self, patch_size, max_iter):
         """Approximate clean and noise RPSD per micrograph."""
-        micro_size = self.noise_mc.shape[1]
+        micro_size = self.noise_mc.shape[0]
         m = np.floor(micro_size/patch_size)
         M = (m**2).astype(int)
-        L = np.ceil(np.sqrt(2)*(patch_size-1)+1).astype(int)
+        L = int(patch_size)  #np.ceil(np.sqrt(2)*(patch_size-1)+1).astype(int)
         s = np.zeros((L, M))
         num_quads = 2**9
         quad_sample_points = lgwt(num_quads, -np.pi, np.pi)
@@ -468,7 +458,7 @@ class Micrograph:
         nodes = np.flipud(quad_sample_points.w)
         x = repmat(quad, num_quads, 1)
         y = x.transpose()
-        rho_mat = np.sqrt(x**2+y**2)
+        rho_mat = np.sqrt(x**2 + y**2)
         rho_mat = np.where(rho_mat > np.pi, 0, rho_mat)
         rho_samp, idx = np.unique(rho_mat, return_inverse=True)
         r_tmp = np.zeros((L, 1))
@@ -476,14 +466,14 @@ class Micrograph:
             row = np.ceil((k+1) / m).astype(int)
             col = (k+1 - (row - 1) * m).astype(int)
             noisemc_block = self.noise_mc[(row - 1) * patch_size.astype(int):row * patch_size.astype(int), (col - 1) * patch_size.astype(int): col * patch_size.astype(int)]
-            noisemc_block -= np.mean(noisemc_block)
+            noisemc_block = noisemc_block- np.mean(noisemc_block)
             psd_block = cryo_epsds(noisemc_block[:, :, np.newaxis], np.where(np.zeros((int(patch_size), int(patch_size))) == 0), np.floor(0.3 * patch_size).astype(int))
             psd_block = psd_block[0]
             if np.count_nonzero(np.isnan(psd_block)) != 0:
                 print("got NaN")
             [r_block, r] = radial_avg(psd_block, L)
             block_var = np.var(noisemc_block.transpose().flatten(), ddof=1)
-            psd_rad = np.abs(trig_interpolation(r*np.pi, r_block, rho_samp))  #  here stuff starts to be a bit different
+            psd_rad = np.abs(trig_interpolation(r*np.pi, r_block, rho_samp))
             psd_mat = np.reshape(psd_rad[idx], [num_quads, num_quads])
             var_psd = (1/(2*np.pi)**2) * (nodes@psd_mat@nodes)
             scaling_psd = block_var / var_psd
@@ -532,16 +522,15 @@ class Micrograph:
         self.stop_par = stop_par
 
     def prewhiten_micrograph(self):
-        # L = np.floor((self.micrograph.shape[0] - 1) / 2).astype('int')
-        r = np.floor((self.micrograph.shape[0] - 1) / 2).astype('int')
-        c = np.floor((self.micrograph.shape[1] - 1) / 2).astype('int')
-        col = np.linspace(-1, 1, 2 * c + 1) * np.pi
-        row = np.linspace(-1, 1, 2 * r + 1) * np.pi
+        r = np.floor((self.mc_size[1] - 1) / 2).astype('int')
+        c = np.floor((self.micrograph.shape[0] - 1) / 2).astype('int')
+        col = np.arange(-c, c + 1) * np.pi/c
+        row = np.arange(-r, r + 1) * np.pi/r
         Row, Col = np.meshgrid(row, col)
-        rad_mat = np.sqrt(Row ** 2 + Col ** 2)
+        rad_mat = np.sqrt(Col ** 2 + Row ** 2)
         rad_samp, idx = np.unique(rad_mat, return_inverse=True)
-        rad_samp[rad_samp>np.max(self.r*np.pi)] = 0
-        noise_psd_nodes = np.abs(trig_interpolation(self.r * np.pi, self.approx_noise_psd, rad_samp))
+        rad_samp_tmp = rad_samp[rad_samp<np.max(self.r*np.pi)]
+        noise_psd_nodes = np.abs(trig_interpolation(self.r * np.pi, self.approx_noise_psd, rad_samp_tmp))
         noise_psd_nodes = np.pad(noise_psd_nodes, (0, rad_samp.size - noise_psd_nodes.size), 'constant', constant_values=noise_psd_nodes[-1])
         noise_psd_mat = np.reshape(noise_psd_nodes[idx], [col.size, row.size])
         noise_mc_prewhite = cryo_prewhiten(self.noise_mc[:, :, np.newaxis], noise_psd_mat)
@@ -633,13 +622,10 @@ class Micrograph:
         kappa_inv = np.linalg.inv(kappa)
         t_mat = (1 / self.approx_noise_var) * np.eye(self.num_of_func) - kappa_inv
         mu = np.linalg.slogdet((1 / self.approx_noise_var) * kappa)[1]
-        #last_block = self.mc_size - kltpicker.patch_size_func + 1
-        #num_of_patch = last_block
         last_block_row = self.mc_size[0] - kltpicker.patch_size_func + 1
         last_block_col = self.mc_size[1] - kltpicker.patch_size_func + 1
         num_of_patch_row = last_block_row
         num_of_patch_col = last_block_col
-
         v = np.zeros((num_of_patch_row, num_of_patch_col, self.num_of_func))
         cnt = 0
         for i in range(self.num_of_func):
@@ -669,14 +655,13 @@ class Micrograph:
         else:
             neigh = np.ones((kltpicker.patch_size_func, kltpicker.patch_size_func))
             log_test_n = signal.fftconvolve(log_test_mat, neigh, 'valid')
-        # log_test_n = mat_to_npy('logTestN', '/home/dalitcohen/Documents/kltdata/matlab')
         [num_picked_particles, num_picked_noise] = picking_from_scoring_mat(log_test_n, self.mrc_name, kltpicker, self.mg_big_size)
         return num_picked_particles, num_picked_noise
 
 
 def picking_from_scoring_mat(log_test_n, mrc_name, kltpicker, mg_big_size):
-    idx_row = np.arange(log_test_n.shape(0))
-    idx_col = np.arange(log_test_n.shape(1))
+    idx_row = np.arange(log_test_n.shape[0])
+    idx_col = np.arange(log_test_n.shape[1])
     [col_idx, row_idx] = np.meshgrid(idx_col, idx_row)
     r_del = np.floor(kltpicker.patch_size_pick_box)
     shape = log_test_n.shape
@@ -716,24 +701,28 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
     star_file = open("%s/%s.star" % (star_path, mrc_name), 'w')
     star_file.write('data_\n\nloop_\n_rlnCoordinateX #1\n_rlnCoordinateY #2\n')
     iter_pick = 0
+    log_max = np.max(scoring_mat)
     while iter_pick <= max_iter and oper(oper_param, threshold):
         max_index = np.argmax(scoring_mat.transpose().flatten())
         oper_param = scoring_mat.transpose().flatten()[max_index]
-        print(oper_param)
-        [index_col, index_row] = np.unravel_index(max_index, shape)
-        ind_row_patch = (index_row - 1) + patch_size_func
-        ind_col_patch = (index_col - 1) + patch_size_func
-        row_idx_b = row_idx - index_row
-        col_idx_b = col_idx - index_col
-        rsquare = row_idx_b**2 + col_idx_b**2
-        scoring_mat[rsquare <= (r_del**2)] = replace_param
-        box_file.write('%i\t%i\t%i\t%i\n' % ((1 / mgscale) * (ind_col_patch + 1 - np.floor(patch_size_pick_box / 2)),
-                                        (mg_big_size[0] + 1) - (1 / mgscale) * (ind_row_patch + 1 + np.floor(patch_size_pick_box / 2)),
-                                        (1 / mgscale) * patch_size_pick_box, (1 / mgscale) * patch_size_pick_box))
-        star_file.write('%i\t%i\t%f\n' % ((1 / mgscale) * (ind_col_patch + 1), (mg_big_size[0] + 1) - ((1 / mgscale) * (ind_row_patch + 1)), oper_param/np.max(scoring_mat)))
-        iter_pick += 1
-        num_picked += 1
-        print("%d\tpmax: %f"%(num_picked, oper_param))
+        if not oper(oper_param, threshold):
+            break
+        else:
+            print(oper_param/log_max)
+            [index_col, index_row] = np.unravel_index(max_index, shape)
+            ind_row_patch = (index_row - 1) + patch_size_func
+            ind_col_patch = (index_col - 1) + patch_size_func
+            row_idx_b = row_idx - index_row
+            col_idx_b = col_idx - index_col
+            rsquare = row_idx_b**2 + col_idx_b**2
+            scoring_mat[rsquare <= (r_del**2)] = replace_param
+            box_file.write('%i\t%i\t%i\t%i\n' % ((1 / mgscale) * (ind_col_patch + 1 - np.floor(patch_size_pick_box / 2)),
+                                            (mg_big_size[0] + 1) - (1 / mgscale) * (ind_row_patch + 1 + np.floor(patch_size_pick_box / 2)),
+                                            (1 / mgscale) * patch_size_pick_box, (1 / mgscale) * patch_size_pick_box))
+            star_file.write('%i\t%i\t%f\n' % ((1 / mgscale) * (ind_col_patch + 1), (mg_big_size[0] + 1) - ((1 / mgscale) * (ind_row_patch + 1)), oper_param/log_max))
+            iter_pick += 1
+            num_picked += 1
+            print("%d\tpmax: %f"%(num_picked, oper_param))
     star_file.close()
     box_file.close()
     return num_picked
@@ -757,23 +746,39 @@ def main():
     kltpicker.rad_mat = mat_to_npy('radMat','/home/dalitcohen/Documents/kltdata/matlab')
     kltpicker.get_micrographs()
     for micrograph in kltpicker.micrographs:
-        micrograph.cutoff_filter(kltpicker.patch_size)
-        micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
-        micrograph.approx_noise_psd += np.median(micrograph.approx_noise_psd)/10
-        micrograph.prewhiten_micrograph()
-        micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
-        # micrograph.r = mat_to_npy_vec('R','/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.approx_clean_psd = mat_to_npy_vec('apprxCleanPsd','/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.approx_noise_psd = mat_to_npy_vec('apprxNoisePsd','/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.approx_noise_var = mat_to_npy_vec('noiseVar','/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.micrograph = mat_to_npy('mg','/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.noise_mc = mat_to_npy('noiseMc','/home/dalitcohen/Documents/kltdata/matlab')
-        micrograph.psd = np.abs(trig_interpolation(np.pi * micrograph.r, micrograph.approx_clean_psd, kltpicker.rho))
-        # micrograph.psd = mat_to_npy_vec('psd', '/home/dalitcohen/Documents/kltdata/matlab')
-        micrograph.construct_klt_templates(kltpicker)
-        # micrograph.eig_func = mat_to_npy('eigFun', '/home/dalitcohen/Documents/kltdata/matlab')
-        # micrograph.eig_val = mat_to_npy_vec('eigVal', '/home/dalitcohen/Documents/kltdata/matlab')
+        #micrograph.cutoff_filter(kltpicker.patch_size)
+        #print("Done cutoff filter")
+        #micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
+        #print("Done estimate rpsd I")
+        #micrograph.approx_noise_psd += np.median(micrograph.approx_noise_psd)/10
+        #micrograph.r = mat_to_npy_vec('R', '/home/dalitcohen/Documents/kltdata/matlab')
+        #micrograph.approx_clean_psd = mat_to_npy_vec('apprxCleanPsd', '/home/dalitcohen/Documents/kltdata/matlab')
+        #micrograph.approx_noise_psd = mat_to_npy_vec('apprxNoisePsd', '/home/dalitcohen/Documents/kltdata/matlab')
+        #micrograph.micrograph = mat_to_npy('mg', '/home/dalitcohen/Documents/kltdata/matlab')
+        #micrograph.noise_mc = mat_to_npy('noiseMc','/home/dalitcohen/Documents/kltdata/matlab')
+        #micrograph.prewhiten_micrograph()
+        #print("Done prewhitening") #all good
+        #micrograph.estimate_rpsd(kltpicker.patch_size, kltpicker.max_iter)
+        #print("Done estimate rpsd II")
+        #micrograph.psd = np.abs(trig_interpolation(np.pi * micrograph.r, micrograph.approx_clean_psd, kltpicker.rho))
+        #micrograph.construct_klt_templates(kltpicker)
+        #print("Done construct klt templates")
+        # micrograph.approx_noise_psd = np.load('/home/dalitcohen/Documents/kltdata/numpy/approx_noise_psd.npy')
+        # micrograph.approx_noise_var = np.load('/home/dalitcohen/Documents/kltdata/numpy/approx_noise_var.npy')
+        # micrograph.approx_clean_psd = np.load('/home/dalitcohen/Documents/kltdata/numpy/approx_clean_psd.npy')
+        # micrograph.noise_mc = np.load('/home/dalitcohen/Documents/kltdata/numpy/noise_mc.npy')
+        # micrograph.psd = np.load('/home/dalitcohen/Documents/kltdata/numpy/psd.npy')
+        # micrograph.eig_func = np.load('/home/dalitcohen/Documents/kltdata/numpy/eig_func.npy')
+        # micrograph.eig_val = np.load('/home/dalitcohen/Documents/kltdata/numpy/eig_val.npy')
         # micrograph.num_of_func = 400
+        print("Picking particles:")
+        micrograph.eig_func = mat_to_npy('eigFun', '/home/dalitcohen/Documents/kltdata/matlab')
+        micrograph.eig_val = mat_to_npy_vec('eigVal', '/home/dalitcohen/Documents/kltdata/matlab')
+        micrograph.approx_noise_psd = mat_to_npy_vec('apprxNoisePsd', '/home/dalitcohen/Documents/kltdata/matlab')
+        micrograph.approx_clean_psd = mat_to_npy_vec('apprxCleanPsd', '/home/dalitcohen/Documents/kltdata/matlab')
+        micrograph.noise_mc = mat_to_npy('noiseMc', '/home/dalitcohen/Documents/kltdata/matlab')
+        micrograph.num_of_func = 400
+        micrograph.approx_noise_var = mat_to_npy('noiseVar', '/home/dalitcohen/Documents/kltdata/matlab')
         micrograph.detect_particles(kltpicker)
     print("")
 
