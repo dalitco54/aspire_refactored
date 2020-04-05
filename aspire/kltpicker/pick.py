@@ -6,6 +6,7 @@ import numpy as np
 import glob
 import warnings
 from tqdm import tqdm
+from sys import exit
 from numpy.polynomial.legendre import leggauss
 from numpy.matlib import repmat
 import operator as op
@@ -139,7 +140,7 @@ def als_find_min(sreal, eps, max_iter):
     min_col = np.argmin(s_norm_1)
     noise_sig_tmp = np.abs(sreal[:, min_col])
     s = sreal - np.outer(noise_sig_tmp, One)
-    alpha_tmp = (np.dot(clean_sig_tmp,s))/np.sum(clean_sig_tmp**2)
+    alpha_tmp = (np.dot(clean_sig_tmp, s))/np.sum(clean_sig_tmp**2)
     alpha_tmp = alpha_tmp.clip(min=0, max=1)
     stop_par = 0
     cnt = 1
@@ -225,8 +226,8 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
         os.mkdir(box_path)
     if not os.path.isdir(star_path):
         os.mkdir(star_path)
-    box_file = open("%s/%s.box" % (box_path, mrc_name), 'w')
-    star_file = open("%s/%s.star" % (star_path, mrc_name), 'w')
+    box_file = open("%s/%s.box" % (box_path, mrc_name.replace('.mrc','')), 'w')
+    star_file = open("%s/%s.star" % (star_path, mrc_name.replace('.mrc','')), 'w')
     star_file.write('data_\n\nloop_\n_rlnCoordinateX #1\n_rlnCoordinateY #2\n')
     iter_pick = 0
     log_max = np.max(scoring_mat)
@@ -991,7 +992,7 @@ class Picker:
         self.num_of_particles = args.num_of_particles
         self.num_of_noise_images = args.num_of_noise_images
         self.threshold = args.threshold
-        self.show_figures = args.show_figures
+        self.show_figures = 0 #args.show_figures
         patch_size = np.floor(0.8 * self.mgscale * args.particle_size)  # need to put the 0.8 somewhere else.
         if np.mod(patch_size, 2) == 0:
             patch_size -= 1
@@ -1070,16 +1071,23 @@ class Picker:
 
 def main():
     args = parse_args()
+    num_files = len(glob.glob("%s/*.mrc" % args.input_dir))
+    if num_files > 0:
+        print("Running on %i files."%len(glob.glob("%s/*.mrc" % args.input_dir)))
+    else:
+        print("Could not find any .mrc files in %s. \nExiting..."%args.input_dir)
+        exit(0)
     picker = Picker(args)
     if args.preprocess:
-        print("Starting preprocessing.")
+        print("Preprocessing...")
         picker.preprocess()
-        print("Preprocess finished.\nFetching micrographs...")
+        print("Preprocess finished.")
     else:
         print("Skipping preprocessing.")
     picker.get_micrographs()
-    print("Fetched micrographs.\nCutoff filter...")
     for micrograph in picker.micrographs:
+        print("Processing %s"%micrograph.mrc_name)
+        print("Cutoff filter...")
         micrograph.cutoff_filter(picker.patch_size)
         print("Done cutoff filter.\nEstimating RPSD I...")
         micrograph.estimate_rpsd(picker.patch_size, picker.max_iter)
@@ -1096,11 +1104,11 @@ def main():
             plt.legend()
             plt.show()
         micrograph.approx_noise_psd = micrograph.approx_noise_psd + np.median(micrograph.approx_noise_psd) / 10
-        print("Prewhitening.")
+        print("Prewhitening...")
         micrograph.prewhiten_micrograph()
-        print("Done prewhitening.\nEstimating RPSD II.")
+        print("Done prewhitening.\nEstimating RPSD II...")
         micrograph.estimate_rpsd(picker.patch_size, picker.max_iter)
-        print("Done estimating RPSD II.\nConstructing KLT templates.")
+        print("Done estimating RPSD II.\nConstructing KLT templates...")
         if picker.show_figures:
             plt.figure(3)
             plt.plot(micrograph.r * np.pi, micrograph.approx_clean_psd, label='Approx Clean PSD')
@@ -1121,8 +1129,9 @@ def main():
             plt.show()
         micrograph.construct_klt_templates(picker)
         print("Done constructing KLT templates.\nPicking particles...")
-        micrograph.detect_particles(picker)
-    print("")
+        num_picked_particles, num_picked_noise = micrograph.detect_particles(picker)
+        print("Picked %i particles and %i noise images from %s.\n\n"%(num_picked_particles, num_picked_noise, micrograph.mrc_name))
+    print("Finished successfully.")
 
 
 if __name__ == "__main__":
