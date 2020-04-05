@@ -2,7 +2,6 @@ import logging
 import argparse
 import glob
 import operator as op
-import mrcfile
 import numpy as np
 from numpy.matlib import repmat
 import scipy.special as ssp
@@ -14,6 +13,7 @@ from aspire.preprocessor.downsample import downsample
 from aspire.preprocessor.prewhiten  import cryo_prewhiten, cryo_epsds
 from dev_utils import *
 import matplotlib.pyplot as plt
+import mrcfile
 
 # GLOBALS
 EPS = 10 ** (-2) #Convergence term for ALS.
@@ -619,7 +619,6 @@ class Micrograph:
         v = np.zeros((num_of_patch_row, num_of_patch_col, self.num_of_func))
         cnt = 0
         for i in range(self.num_of_func):
-            #print("%d/%d"%(i,self.num_of_func))
             cnt += 1
             q_tmp = np.reshape(q[:,i], (kltpicker.patch_size_func, kltpicker.patch_size_func)).transpose()
             q_tmp = q_tmp - np.mean(q_tmp)
@@ -631,7 +630,7 @@ class Micrograph:
                 # v(:,:, i) = single(gather(v_tmp))
             else:
                 v_tmp = signal.fftconvolve(self.noise_mc, q_tmp, 'valid')
-                v[:, :, i] = v_tmp.astype('single')  # different signs for values compared to matlab output, possible issue.
+                v[:, :, i] = v_tmp.astype('single')
         log_test_mat = np.zeros((num_of_patch_row, num_of_patch_col))
         cnt = 0
         for j in range(num_of_patch_col):
@@ -698,7 +697,6 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
         if not oper(oper_param, threshold):
             break
         else:
-            #print(oper_param/log_max)
             [index_col, index_row] = np.unravel_index(max_index, shape)
             ind_row_patch = (index_row - 1) + patch_size_func
             ind_col_patch = (index_col - 1) + patch_size_func
@@ -745,7 +743,6 @@ def get_matlab_files(micrograph):
     micrograph.approx_noise_var = mat_to_npy('noiseVar', '/home/dalitcohen/Documents/kltdata/matlab64')
     micrograph.psd = mat_to_npy_vec('psd', '/home/dalitcohen/Documents/kltdata/matlab64')
 
-
 def getting_np_files(kltpicker):
     # PREPROCESS:
     kltpicker.rsamp_length = np.load('/home/dalitcohen/Documents/kltdata/numpy/rsamp_length.npy')
@@ -771,7 +768,7 @@ def getting_np_files(kltpicker):
 
 def main():
     args = parse_args()
-    kltpicker = KLTPicker(PARTICLE_SIZE, MICRO_PATH, OUTPUT_PATH, GPU_USE)
+    kltpicker = KLTPicker(args)
     print("Starting preprocessing.")
     kltpicker.preprocess()
     # get_matlab_files_preprocess(kltpicker)
