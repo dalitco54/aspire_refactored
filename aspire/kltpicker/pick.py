@@ -724,7 +724,7 @@ class Micrograph:
         rho_mat = np.where(rho_mat > np.pi, 0, rho_mat)
         rho_samp, idx = np.unique(rho_mat, return_inverse=True)
         r_tmp = np.zeros((L, 1))
-        for k in tqdm(range(M)):
+        for k in range(M): #tqdm
             row = np.ceil((k + 1) / m).astype(int)
             col = (k + 1 - (row - 1) * m).astype(int)
             noisemc_block = self.noise_mc[(row - 1) * patch_size.astype(int):row * patch_size.astype(int),
@@ -811,7 +811,7 @@ class Micrograph:
         sqrt_rr = np.sqrt(kltpicker.r_r)
         d_rho_psd_quad_ker = np.diag(kltpicker.rho) * np.diag(self.psd) * np.diag(kltpicker.quad_ker)
         sqrt_diag_quad_nys = np.sqrt(np.diag(kltpicker.quad_nys))
-        for n in tqdm(range(kltpicker.max_order)):
+        for n in range(kltpicker.max_order): #tqdm
             h_nodes = sqrt_rr * np.linalg.multi_dot([kltpicker.j_r_rho[:, :, n], d_rho_psd_quad_ker,
                                        kltpicker.j_r_rho[:, :, n].transpose()])
             tmp = np.linalg.multi_dot([sqrt_diag_quad_nys, h_nodes, sqrt_diag_quad_nys.transpose()])
@@ -896,7 +896,7 @@ class Micrograph:
         num_of_patch_col = last_block_col
         v = np.zeros((num_of_patch_row, num_of_patch_col, self.num_of_func))
         cnt = 0
-        for i in tqdm(range(self.num_of_func)):
+        for i in range(self.num_of_func): #tqdm
             cnt += 1
             q_tmp = np.reshape(q[:, i], (kltpicker.patch_size_func, kltpicker.patch_size_func)).transpose()
             q_tmp = q_tmp - np.mean(q_tmp)
@@ -1044,12 +1044,12 @@ class Picker:
         j_samp = np.zeros([len(rsamp), NUM_QUAD_NYS, self.max_order]).astype('float64')
         cosine = np.zeros([len(theta), self.max_order]).astype('float64')
         sine = np.zeros([len(theta), self.max_order]).astype('float64')
-        for n in tqdm(range(self.max_order)):
+        for n in range(self.max_order):  #tqdm
             j_r_rho[:, :, n] = ssp.jv(n, r_rho).astype('float64')
             j_samp[:, :, n] = ssp.jv(n, rsamp_rho).astype('float64')
-            if n != 0:
-                cosine[:, n] = np.cos(n * theta).astype('float64')
-                sine[:, n] = np.sin(n * theta).astype('float64')
+            cosine[:, n] = np.cos(n * theta).astype('float64')
+            sine[:, n] = np.sin(n * theta).astype('float64')
+        cosine[:, 0] = 0
         self.quad_ker = quad_ker
         self.quad_nys = quad_nys
         self.rho = rho
