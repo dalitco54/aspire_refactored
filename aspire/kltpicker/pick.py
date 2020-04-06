@@ -1,23 +1,23 @@
 #!/usr/bin/env python
 
-import argparse
-import os
-import numpy as np
 import glob
-import warnings
-from tqdm import tqdm
-from sys import exit
-from numpy.polynomial.legendre import leggauss
-from numpy.matlib import repmat
 import operator as op
-import matplotlib.pyplot as plt
-import scipy.special as ssp
-from scipy import signal
-from scipy.ndimage import uniform_filter, correlate
-from scipy.fftpack import fftshift
-from pyfftw.interfaces.numpy_fft import fft2, ifft2
+import os
+import warnings
 from pyfftw import FFTW
+from sys import exit
+import argparse
+import matplotlib.pyplot as plt
 import mrcfile
+import numpy as np
+import scipy.special as ssp
+from numpy.matlib import repmat
+from numpy.polynomial.legendre import leggauss
+from pyfftw.interfaces.numpy_fft import fft2, ifft2
+from scipy import signal
+from scipy.fftpack import fftshift
+from scipy.ndimage import uniform_filter, correlate
+from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -28,6 +28,7 @@ PERCENT_EIG_FUNC = 0.99
 NUM_QUAD_NYS = 2 ** 10
 NUM_QUAD_KER = 2 ** 10
 MAX_FUN = 400
+
 
 # Utils:
 
@@ -41,25 +42,25 @@ def f_trans_2(b):
     :return h: 2-D FIR filter.
     """
     # McClellan transformation:
-    t = np.array([[1, 2, 1], [2, -4, 2], [1, 2, 1]])/8
-    n = int((b.size - 1)/2)
+    t = np.array([[1, 2, 1], [2, -4, 2], [1, 2, 1]]) / 8
+    n = int((b.size - 1) / 2)
     b = np.flip(b, 0)
     b = fftshift(b)
     b = np.flip(b, 0)
-    a = 2*b[0:n+1]
-    a[0] = a[0]/2
+    a = 2 * b[0:n + 1]
+    a[0] = a[0] / 2
     # Use Chebyshev polynomials to compute h:
     p0 = 1
     p1 = t
-    h = a[1]*p1
+    h = a[1] * p1
     rows = 1
     cols = 1
-    h[rows, cols] = h[rows, cols] + a[0]*p0
+    h[rows, cols] = h[rows, cols] + a[0] * p0
     p2 = 2 * signal.convolve2d(t, p1)
     p2[2, 2] = p2[2, 2] - p0
-    for i in range(2, n+1):
-        rows = p1.shape[0]+1
-        cols = p1.shape[1]+1
+    for i in range(2, n + 1):
+        rows = p1.shape[0] + 1
+        cols = p1.shape[1] + 1
         hh = h
         h = a[i] * p2
         h[1:rows, 1:cols] = h[1:rows, 1:cols] + hh
@@ -87,15 +88,15 @@ def radial_avg(z, m):
     :return R: Mid-points of the bins.
     """
     N = z.shape[1]
-    X, Y = np.meshgrid(np.arange(N) * 2 / (N-1) - 1, np.arange(N) * 2 / (N-1) - 1)
+    X, Y = np.meshgrid(np.arange(N) * 2 / (N - 1) - 1, np.arange(N) * 2 / (N - 1) - 1)
     r = np.sqrt(np.square(X) + np.square(Y))
     dr = 1 / (m - 1)
     rbins = np.linspace(-dr / 2, 1 + dr / 2, m + 1, endpoint=True)
     R = (rbins[0:-1] + rbins[1:]) / 2
     zr = np.zeros(m)
     for j in range(m - 1):
-        bins = np.where(np.logical_and(r >= rbins[j], r < rbins[j+1]))
-        n = np.count_nonzero(np.logical_and(r >= rbins[j], r < rbins[j+1]))
+        bins = np.where(np.logical_and(r >= rbins[j], r < rbins[j + 1]))
+        n = np.count_nonzero(np.logical_and(r >= rbins[j], r < rbins[j + 1]))
         if n != 0:
             zr[j] = sum(z[bins]) / n
         else:
@@ -113,7 +114,7 @@ def stdfilter(a, nhood):
     """Local standard deviation of image."""
     c1 = uniform_filter(a, nhood, mode='reflect')
     c2 = uniform_filter(a * a, nhood, mode='reflect')
-    return np.sqrt(c2 - c1 * c1)*np.sqrt(nhood**2./(nhood**2-1))
+    return np.sqrt(c2 - c1 * c1) * np.sqrt(nhood ** 2. / (nhood ** 2 - 1))
 
 
 def als_find_min(sreal, eps, max_iter):
@@ -140,26 +141,26 @@ def als_find_min(sreal, eps, max_iter):
     min_col = np.argmin(s_norm_1)
     noise_sig_tmp = np.abs(sreal[:, min_col])
     s = sreal - np.outer(noise_sig_tmp, One)
-    alpha_tmp = (np.dot(clean_sig_tmp, s))/np.sum(clean_sig_tmp**2)
+    alpha_tmp = (np.dot(clean_sig_tmp, s)) / np.sum(clean_sig_tmp ** 2)
     alpha_tmp = alpha_tmp.clip(min=0, max=1)
     stop_par = 0
     cnt = 1
     while stop_par == 0:
         if np.linalg.norm(alpha_tmp, 1) == 0:
             alpha_tmp = np.random.random(alpha_tmp.size)
-        approx_clean_psd = np.dot(s, alpha_tmp)/sum(alpha_tmp ** 2)
+        approx_clean_psd = np.dot(s, alpha_tmp) / sum(alpha_tmp ** 2)
         approx_clean_psd = approx_clean_psd.clip(min=0, max=None)
         s = sreal - np.outer(approx_clean_psd, alpha_tmp)
-        approx_noise_psd = np.dot(s, np.ones(patch_num))/patch_num
+        approx_noise_psd = np.dot(s, np.ones(patch_num)) / patch_num
         approx_noise_psd = approx_noise_psd.clip(min=0, max=None)
         s = sreal - np.outer(approx_noise_psd, One)
         if np.linalg.norm(approx_clean_psd, 1) == 0:
             approx_clean_psd = np.random.random(approx_clean_psd.size)
-        alpha_approx = np.dot(approx_clean_psd, s)/sum(approx_clean_psd**2)
+        alpha_approx = np.dot(approx_clean_psd, s) / sum(approx_clean_psd ** 2)
         alpha_approx = alpha_approx.clip(min=0, max=1)
-        if np.linalg.norm(noise_sig_tmp-approx_noise_psd) / np.linalg.norm(approx_noise_psd) < eps:
-            if np.linalg.norm(clean_sig_tmp-approx_clean_psd) / np.linalg.norm(approx_clean_psd) < eps:
-                if np.linalg.norm(alpha_approx-alpha_tmp) / np.linalg.norm(alpha_approx) < eps:
+        if np.linalg.norm(noise_sig_tmp - approx_noise_psd) / np.linalg.norm(approx_noise_psd) < eps:
+            if np.linalg.norm(clean_sig_tmp - approx_clean_psd) / np.linalg.norm(approx_clean_psd) < eps:
+                if np.linalg.norm(alpha_approx - alpha_tmp) / np.linalg.norm(alpha_approx) < eps:
                     break
         noise_sig_tmp = approx_noise_psd
         alpha_tmp = alpha_approx
@@ -197,18 +198,22 @@ def picking_from_scoring_mat(log_test_n, mrc_name, kltpicker, mg_big_size):
     scoring_mat = log_test_n
     if kltpicker.num_of_particles == -1:
         num_picked_particles = write_output_files(scoring_mat, shape, r_del, np.iinfo(np.int32(10)).max, op.gt,
-                                                  kltpicker.threshold+1, kltpicker.threshold, kltpicker.patch_size_func,
+                                                  kltpicker.threshold + 1, kltpicker.threshold,
+                                                  kltpicker.patch_size_func,
                                                   row_idx, col_idx, kltpicker.output_particles, mrc_name,
-                                                  kltpicker.mgscale, mg_big_size, -np.inf, kltpicker.patch_size_pick_box)
+                                                  kltpicker.mgscale, mg_big_size, -np.inf,
+                                                  kltpicker.patch_size_pick_box)
     else:
         num_picked_particles = write_output_files(scoring_mat, shape, r_del, kltpicker.num_of_particles, op.gt,
-                                                  kltpicker.threshold+1, kltpicker.threshold, kltpicker.patch_size_func,
+                                                  kltpicker.threshold + 1, kltpicker.threshold,
+                                                  kltpicker.patch_size_func,
                                                   row_idx, col_idx, kltpicker.output_particles, mrc_name,
-                                                  kltpicker.mgscale, mg_big_size, -np.inf, kltpicker.patch_size_pick_box)
+                                                  kltpicker.mgscale, mg_big_size, -np.inf,
+                                                  kltpicker.patch_size_pick_box)
     if kltpicker.num_of_noise_images != 0:
         num_picked_noise = write_output_files(scoring_mat, shape, r_del, kltpicker.num_of_noise_images, op.lt,
-                                              kltpicker.threshold-1, kltpicker.threshold, kltpicker.patch_size_func,
-                                              row_idx, col_idx, kltpicker. output_noise, mrc_name,
+                                              kltpicker.threshold - 1, kltpicker.threshold, kltpicker.patch_size_func,
+                                              row_idx, col_idx, kltpicker.output_noise, mrc_name,
                                               kltpicker.mgscale, mg_big_size, np.inf, kltpicker.patch_size_pick_box)
     else:
         num_picked_noise = 0
@@ -218,16 +223,16 @@ def picking_from_scoring_mat(log_test_n, mrc_name, kltpicker, mg_big_size):
 def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, threshold, patch_size_func, row_idx,
                        col_idx, output_path, mrc_name, mgscale, mg_big_size, replace_param, patch_size_pick_box):
     num_picked = 0
-    box_path = output_path+'/box'
-    star_path = output_path+'/star'
+    box_path = output_path + '/box'
+    star_path = output_path + '/star'
     if not os.path.isdir(output_path):
         os.mkdir(output_path)
     if not os.path.isdir(box_path):
         os.mkdir(box_path)
     if not os.path.isdir(star_path):
         os.mkdir(star_path)
-    box_file = open("%s/%s.box" % (box_path, mrc_name.replace('.mrc','')), 'w')
-    star_file = open("%s/%s.star" % (star_path, mrc_name.replace('.mrc','')), 'w')
+    box_file = open("%s/%s.box" % (box_path, mrc_name.replace('.mrc', '')), 'w')
+    star_file = open("%s/%s.star" % (star_path, mrc_name.replace('.mrc', '')), 'w')
     star_file.write('data_\n\nloop_\n_rlnCoordinateX #1\n_rlnCoordinateY #2\n')
     iter_pick = 0
     log_max = np.max(scoring_mat)
@@ -242,17 +247,22 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
             ind_col_patch = (index_col - 1) + patch_size_func
             row_idx_b = row_idx - index_row
             col_idx_b = col_idx - index_col
-            rsquare = row_idx_b**2 + col_idx_b**2
-            scoring_mat[rsquare <= (r_del**2)] = replace_param
-            box_file.write('%i\t%i\t%i\t%i\n' % ((1 / mgscale) * (ind_col_patch + 1 - np.floor(patch_size_pick_box / 2)),
-                                            (mg_big_size[0] + 1) - (1 / mgscale) * (ind_row_patch + 1 + np.floor(patch_size_pick_box / 2)),
-                                            (1 / mgscale) * patch_size_pick_box, (1 / mgscale) * patch_size_pick_box))
-            star_file.write('%i\t%i\t%f\n' % ((1 / mgscale) * (ind_col_patch + 1), (mg_big_size[0] + 1) - ((1 / mgscale) * (ind_row_patch + 1)), oper_param/log_max))
+            rsquare = row_idx_b ** 2 + col_idx_b ** 2
+            scoring_mat[rsquare <= (r_del ** 2)] = replace_param
+            box_file.write(
+                '%i\t%i\t%i\t%i\n' % ((1 / mgscale) * (ind_col_patch + 1 - np.floor(patch_size_pick_box / 2)),
+                                      (mg_big_size[0] + 1) - (1 / mgscale) * (
+                                                  ind_row_patch + 1 + np.floor(patch_size_pick_box / 2)),
+                                      (1 / mgscale) * patch_size_pick_box, (1 / mgscale) * patch_size_pick_box))
+            star_file.write('%i\t%i\t%f\n' % (
+            (1 / mgscale) * (ind_col_patch + 1), (mg_big_size[0] + 1) - ((1 / mgscale) * (ind_row_patch + 1)),
+            oper_param / log_max))
             iter_pick += 1
             num_picked += 1
     star_file.close()
     box_file.close()
     return num_picked
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -404,7 +414,7 @@ def lgwt(n, a, b):
 def cryo_epsds(imstack, samples_idx, max_d):
     p = imstack.shape[0]
     if max_d >= p:
-        max_d = p-1
+        max_d = p - 1
         print('max_d too large. Setting max_d to {}'.format(max_d))
 
     r, x, _ = cryo_epsdr(imstack, samples_idx, max_d)
@@ -415,8 +425,8 @@ def cryo_epsds(imstack, samples_idx, max_d):
         for j in range(-max_d, max_d + 1):
             d = i ** 2 + j ** 2
             if d <= max_d ** 2:
-                idx, _ = bsearch(dsquare, d*(1-1e-13), d*(1+1e-13))
-                r2[i+p-1, j+p-1] = r[idx-1]
+                idx, _ = bsearch(dsquare, d * (1 - 1e-13), d * (1 + 1e-13))
+                r2[i + p - 1, j + p - 1] = r[idx - 1]
 
     w = gwindow(p, max_d)
     p2 = fast_cfft2(r2 * w)
@@ -463,7 +473,7 @@ def cryo_epsdr(vol, samples_idx, max_d):
     tmp[:p, :p] = mask
     ftmp = fft2(tmp)
     c = ifft2(ftmp * np.conj(ftmp))
-    c = c[:max_d+1, :max_d+1]
+    c = c[:max_d + 1, :max_d + 1]
     c = np.round(c.real).astype('int')
 
     r = np.zeros(len(corrs))
@@ -504,7 +514,7 @@ def cryo_epsdr(vol, samples_idx, max_d):
 
 
 def gwindow(p, max_d):
-    x, y = np.meshgrid(np.arange(-(p-1), p), np.arange(-(p-1), p))
+    x, y = np.meshgrid(np.arange(-(p - 1), p), np.arange(-(p - 1), p))
     alpha = 3.0
     w = np.exp(-alpha * (np.square(x) + np.square(y)) / (2 * max_d ** 2))
     return w
@@ -520,7 +530,7 @@ def bsearch(x, lower_bound, upper_bound):
 
     while lower_idx_a + 1 < lower_idx_b or upper_idx_a + 1 < upper_idx_b:
         lw = int(np.floor((lower_idx_a + lower_idx_b) / 2))
-        if x[lw-1] >= lower_bound:
+        if x[lw - 1] >= lower_bound:
             lower_idx_b = lw
         else:
             lower_idx_a = lw
@@ -528,18 +538,18 @@ def bsearch(x, lower_bound, upper_bound):
                 upper_idx_a = lw
 
         up = int(np.ceil((upper_idx_a + upper_idx_b) / 2))
-        if x[up-1] <= upper_bound:
+        if x[up - 1] <= upper_bound:
             upper_idx_a = up
         else:
             upper_idx_b = up
             if lower_idx_a < up < lower_idx_b:
                 lower_idx_b = up
 
-    if x[lower_idx_a-1] >= lower_bound:
+    if x[lower_idx_a - 1] >= lower_bound:
         lower_idx = lower_idx_a
     else:
         lower_idx = lower_idx_b
-    if x[upper_idx_b-1] <= upper_bound:
+    if x[upper_idx_b - 1] <= upper_bound:
         upper_idx = upper_idx_b
     else:
         upper_idx = upper_idx_a
@@ -621,6 +631,7 @@ def cryo_prewhiten(proj, noise_response, rel_threshold=None):
     # change back to x,y,z convention
     proj = p2.real.transpose((1, 2, 0)).copy()
     return proj, filter_var, nzidx
+
 
 # Micrograph:
 
@@ -729,7 +740,7 @@ class Micrograph:
             block_var = np.var(noisemc_block.transpose().flatten(), ddof=1)
             psd_rad = np.abs(trig_interpolation(r * np.pi, r_block, rho_samp))
             psd_mat = np.reshape(psd_rad[idx], [num_quads, num_quads])
-            var_psd = (1 / (2 * np.pi) ** 2) * np.dot(np.dot(nodes, psd_mat), nodes.transpose())
+            var_psd = (1 / (2 * np.pi) ** 2) * np.linalg.multi_dot([nodes, psd_mat, nodes.transpose()])
             scaling_psd = block_var / var_psd
             r_block = scaling_psd * r_block
             s[:, k] = r_block
@@ -757,14 +768,15 @@ class Micrograph:
         noise_psd_nodes = np.abs(trig_interpolation(r * np.pi, approx_noise_psd, rho_samp))
         clean_psd_mat = np.reshape(clean_psd_nodes[idx], (num_of_quad, num_of_quad))
         noise_psd_mat = np.reshape(noise_psd_nodes[idx], (num_of_quad, num_of_quad))
-        scaling_psd_approx = (np.dot(np.dot(nodes, noise_psd_mat), nodes.transpose()) - (4 * np.pi ** 2) * noise_var_approx) / np.dot(np.dot(nodes, clean_psd_mat), nodes.transpose())
+        scaling_psd_approx = (np.linalg.multi_dot([nodes, noise_psd_mat, nodes.transpose()]) - (
+                    4 * np.pi ** 2) * noise_var_approx) / np.linalg.multi_dot([nodes, clean_psd_mat, nodes.transpose()])
         noise_psd_approx_sigma = approx_noise_psd - scaling_psd_approx * approx_clean_psd
         noise_psd_approx_sigma = noise_psd_approx_sigma.clip(min=0, max=None)
         s_mean = np.mean(s, 1)
         s_mean_psd_nodes = np.abs(trig_interpolation(r * np.pi, s_mean, rho_samp))
         s_mean_psd_mat = np.reshape(s_mean_psd_nodes[idx], (num_of_quad, num_of_quad))
-        s_mean_var_psd = (1 / (2 * np.pi) ** 2) * np.dot(np.dot(nodes, s_mean_psd_mat), nodes.transpose())
-        clean_var_psd = (1 / (2 * np.pi) ** 2) * np.dot(np.dot(nodes, clean_psd_mat), nodes.transpose())
+        s_mean_var_psd = (1 / (2 * np.pi) ** 2) * np.linalg.multi_dot([nodes, s_mean_psd_mat, nodes.transpose()])
+        clean_var_psd = (1 / (2 * np.pi) ** 2) * np.linalg.multi_dot([nodes, clean_psd_mat, nodes.transpose()])
         clean_var = s_mean_var_psd - noise_var_approx
         approx_scaling = clean_var / clean_var_psd
         self.approx_clean_psd = approx_scaling * approx_clean_psd
@@ -800,8 +812,9 @@ class Micrograph:
         d_rho_psd_quad_ker = np.diag(kltpicker.rho) * np.diag(self.psd) * np.diag(kltpicker.quad_ker)
         sqrt_diag_quad_nys = np.sqrt(np.diag(kltpicker.quad_nys))
         for n in tqdm(range(kltpicker.max_order)):
-            h_nodes = sqrt_rr * np.dot(np.dot(kltpicker.j_r_rho[:, :, n], d_rho_psd_quad_ker), kltpicker.j_r_rho[:, :, n].transpose())
-            tmp = np.dot(np.dot(sqrt_diag_quad_nys, h_nodes), sqrt_diag_quad_nys.transpose())
+            h_nodes = sqrt_rr * np.linalg.multi_dot([kltpicker.j_r_rho[:, :, n], d_rho_psd_quad_ker,
+                                       kltpicker.j_r_rho[:, :, n].transpose()])
+            tmp = np.linalg.multi_dot([sqrt_diag_quad_nys, h_nodes, sqrt_diag_quad_nys.transpose()])
             eig_vals, eig_funcs = np.linalg.eig(tmp)
             eig_vals = np.real(eig_vals)
             sort_idx = np.argsort(eig_vals)
@@ -833,8 +846,9 @@ class Micrograph:
         for i in range(last_eig_idx):
             order = c_idx[i]
             idx_of_eig = r_idx[i]
-            h_samp = np.sqrt(kltpicker.rsamp_r) * np.dot(np.dot(kltpicker.j_samp[:, :, order],
-                        np.diag(kltpicker.rho * self.psd * kltpicker.quad_ker)), kltpicker.j_r_rho[:, :, order].transpose())
+            h_samp = np.sqrt(kltpicker.rsamp_r) * np.linalg.multi_dot([kltpicker.j_samp[:, :, order],
+                                                                np.diag(kltpicker.rho * self.psd * kltpicker.quad_ker),
+                                                         kltpicker.j_r_rho[:, :, order].transpose()])
             v_correct = (1 / np.sqrt(kltpicker.quad_nys)) * eig_func_tot[:, idx_of_eig, order]
             v_nys = np.dot(h_samp, (kltpicker.quad_nys * v_correct)) / eig_val_tot[i]
             if order == 0:
@@ -871,7 +885,8 @@ class Micrograph:
             eig_func_stat[:, i] = tmp_func.flatten()
         [q, r] = np.linalg.qr(eig_func_stat, 'complete')
         r = r[0:self.num_of_func, 0:self.num_of_func]
-        kappa = np.dot(np.dot(r, np.diag(eig_val_stat)), r.transpose()) + (self.approx_noise_var * np.eye(self.num_of_func))
+        kappa = np.linalg.multi_dot([r, np.diag(eig_val_stat), r.transpose()]) + (
+                    self.approx_noise_var * np.eye(self.num_of_func))
         kappa_inv = np.linalg.inv(kappa)
         t_mat = (1 / self.approx_noise_var) * np.eye(self.num_of_func) - kappa_inv
         mu = np.linalg.slogdet((1 / self.approx_noise_var) * kappa)[1]
@@ -910,6 +925,7 @@ class Micrograph:
         [num_picked_particles, num_picked_noise] = picking_from_scoring_mat(log_test_n, self.mrc_name, kltpicker,
                                                                             self.mg_big_size)
         return num_picked_particles, num_picked_noise
+
 
 # KLTpicker:
 
@@ -992,7 +1008,7 @@ class Picker:
         self.num_of_particles = args.num_of_particles
         self.num_of_noise_images = args.num_of_noise_images
         self.threshold = args.threshold
-        self.show_figures = 0 #args.show_figures
+        self.show_figures = 0  # args.show_figures
         patch_size = np.floor(0.8 * self.mgscale * args.particle_size)  # need to put the 0.8 somewhere else.
         if np.mod(patch_size, 2) == 0:
             patch_size -= 1
@@ -1069,13 +1085,14 @@ class Picker:
         micrographs = np.array(micrographs)
         self.micrographs = micrographs
 
+
 def main():
     args = parse_args()
     num_files = len(glob.glob("%s/*.mrc" % args.input_dir))
     if num_files > 0:
-        print("Running on %i files."%len(glob.glob("%s/*.mrc" % args.input_dir)))
+        print("Running on %i files." % len(glob.glob("%s/*.mrc" % args.input_dir)))
     else:
-        print("Could not find any .mrc files in %s. \nExiting..."%args.input_dir)
+        print("Could not find any .mrc files in %s. \nExiting..." % args.input_dir)
         exit(0)
     picker = Picker(args)
     if args.preprocess:
@@ -1086,7 +1103,7 @@ def main():
         print("Skipping preprocessing.")
     picker.get_micrographs()
     for micrograph in picker.micrographs:
-        print("Processing %s"%micrograph.mrc_name)
+        print("Processing %s" % micrograph.mrc_name)
         print("Cutoff filter...")
         micrograph.cutoff_filter(picker.patch_size)
         print("Done cutoff filter.\nEstimating RPSD I...")
@@ -1130,7 +1147,8 @@ def main():
         micrograph.construct_klt_templates(picker)
         print("Done constructing KLT templates.\nPicking particles...")
         num_picked_particles, num_picked_noise = micrograph.detect_particles(picker)
-        print("Picked %i particles and %i noise images from %s.\n\n"%(num_picked_particles, num_picked_noise, micrograph.mrc_name))
+        print("Picked %i particles and %i noise images from %s.\n\n" % (
+        num_picked_particles, num_picked_noise, micrograph.mrc_name))
     print("Finished successfully.")
 
 
