@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
-import glob
+from pathlib import Path
 import operator as op
-import os
 import warnings
 from pyfftw import FFTW
 from sys import exit
@@ -33,16 +32,16 @@ MAX_FUN = 400
 
 # Utils:
 
-def fftcorrelate(image, filter):
-    filter = np.rot90(filter, 2)
-    pad_shift = 1 - np.mod(np.array(filter.shape), 2)
-    filter_center = np.floor((np.array(filter.shape)+1)/2).astype("int")
-    pad = np.array(filter.shape) - filter_center
+def fftcorrelate(image, filt):
+    filt = np.rot90(filt, 2)
+    pad_shift = 1 - np.mod(np.array(filt.shape), 2)
+    filt_center = np.floor((np.array(filt.shape) + 1) / 2).astype("int")
+    pad = np.array(filt.shape) - filt_center
     padded_image = np.zeros((image.shape[0] + 2 * pad[0], image.shape[1] + 2 * pad[1]))
-    padded_image[pad[0] : pad[0] + image.shape[0], pad[1] : pad[1] + image.shape[1]] = image
+    padded_image[pad[0]: pad[0] + image.shape[0], pad[1]: pad[1] + image.shape[1]] = image
     if np.any(pad_shift == 1):
-        padded_image = padded_image[pad_shift[0]-1:-1, pad_shift[1]-1:-1]
-    result = fftconvolve(padded_image, filter, 'valid')
+        padded_image = padded_image[pad_shift[0] - 1: -1, pad_shift[1] - 1: -1]
+    result = signal.fftconvolve(padded_image, filt, 'valid')
     return result
 
 
@@ -237,16 +236,16 @@ def picking_from_scoring_mat(log_test_n, mrc_name, kltpicker, mg_big_size):
 def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, threshold, patch_size_func, row_idx,
                        col_idx, output_path, mrc_name, mgscale, mg_big_size, replace_param, patch_size_pick_box):
     num_picked = 0
-    box_path = output_path + '/box'
-    star_path = output_path + '/star'
-    if not os.path.isdir(output_path):
-        os.mkdir(output_path)
-    if not os.path.isdir(box_path):
-        os.mkdir(box_path)
-    if not os.path.isdir(star_path):
-        os.mkdir(star_path)
-    box_file = open("%s/%s.box" % (box_path, mrc_name.replace('.mrc', '')), 'w')
-    star_file = open("%s/%s.star" % (star_path, mrc_name.replace('.mrc', '')), 'w')
+    box_path = output_path / 'box'
+    star_path = output_path / 'star'
+    if not output_path.exists():
+        output_path.mkdir()
+    if not box_path.exists():
+        box_path.mkdir()
+    if not star_path.exists():
+        star_path.mkdir()
+    box_file = open(box_path / mrc_name.replace('.mrc', '.box'), 'w')
+    star_file = open(star_path / mrc_name.replace('.mrc', '.star'), 'w')
     star_file.write('data_\n\nloop_\n_rlnCoordinateX #1\n_rlnCoordinateY #2\n')
     iter_pick = 0
     log_max = np.max(scoring_mat)
@@ -280,8 +279,8 @@ def write_output_files(scoring_mat, shape, r_del, max_iter, oper, oper_param, th
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('input_dir', help='Input directory.')
-    parser.add_argument('output_dir', help='Output directory.')
+    parser.add_argument('--input_dir', help='Input directory.', default='c:/users/dalit/Documents/uni/year3/shkol_work')
+    parser.add_argument('--output_dir', help='Output directory.', default='c:/users/dalit/Documents/uni/year3/shkol_work')
     parser.add_argument('-s', '--particle_size', help='Expected size of particles in pixels.', default=300, type=int)
     parser.add_argument('--num_of_particles',
                         help='Number of particles to pick per micrograph. If set to -1 will pick all particles.',
@@ -720,7 +719,7 @@ class Micrograph:
         """Radial bandpass filter."""
         bandpass1d = signal.firwin(int(patch_size), np.array([0.05, 0.95]), pass_zero=False)
         bandpass2d = f_trans_2(bandpass1d)
-        micrograph = fftcorrelate(self.micrograph, bandpass2d, mode='constant')
+        micrograph = fftcorrelate(self.micrograph, bandpass2d)
         self.noise_mc = micrograph
 
     def estimate_rpsd(self, patch_size, max_iter):
@@ -1001,10 +1000,10 @@ class Picker:
 
     def __init__(self, args):
         self.particle_size = args.particle_size
-        self.input_dir = args.input_dir
-        self.output_dir = args.output_dir
-        self.output_noise = '%s/PickedNoise_ParticleSize_%d' % (args.output_dir, args.particle_size)
-        self.output_particles = '%s/PickedParticles_ParticleSize_%d' % (args.output_dir, args.particle_size)
+        self.input_dir = Path(args.input_dir)
+        self.output_dir = Path(args.output_dir)
+        self.output_noise = self.output_dir / ('PickedNoise_ParticleSize_%d' % args.particle_size)
+        self.output_particles = self.output_dir / ('PickedParticles_ParticleSize_%d' % args.particle_size)
         self.gpu_use = args.gpu_use
         self.mgscale = 100 / args.particle_size
         self.max_order = args.max_order
@@ -1084,7 +1083,7 @@ class Picker:
     def get_micrographs(self):
         """Reads .mrc files, downsamples them and adds them to the Picker object."""
         micrographs = []
-        mrc_files = glob.glob("%s/*.mrc" % self.input_dir)
+        mrc_files = self.input_dir.glob("*.mrc")
         for mrc_file in mrc_files:
             mrc = mrcfile.open(mrc_file)
             mrc_data = mrc.data.astype('float64').transpose()
@@ -1100,7 +1099,7 @@ class Picker:
             data = data - np.mean(data.transpose().flatten())
             data = data / np.linalg.norm(data, 'fro')
             mc_size = data.shape
-            micrograph = Micrograph(data, pic, mc_size, mrc_file.split('/')[-1], mrc_size)
+            micrograph = Micrograph(data, pic, mc_size, mrc_file.name, mrc_size)
             micrographs.append(micrograph)
         micrographs = np.array(micrographs)
         self.micrographs = micrographs
@@ -1108,13 +1107,14 @@ class Picker:
 
 def main():
     args = parse_args()
-    num_files = len(glob.glob("%s/*.mrc" % args.input_dir))
+    num_files = len(list(Path(args.input_dir).glob("*.mrc")))
     if num_files > 0:
-        print("Running on %i files." % len(glob.glob("%s/*.mrc" % args.input_dir)))
+        print("Running on %i files." % len(list(Path(args.input_dir).glob("*.mrc"))))
     else:
         print("Could not find any .mrc files in %s. \nExiting..." % args.input_dir)
         exit(0)
     picker = Picker(args)
+    args.preprocess=0
     if args.preprocess:
         print("Preprocessing...")
         picker.preprocess()
