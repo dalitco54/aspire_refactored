@@ -16,7 +16,7 @@ from numpy.polynomial.legendre import leggauss
 from pyfftw.interfaces.numpy_fft import fft2, ifft2
 from scipy import signal
 from scipy.fftpack import fftshift
-from scipy.ndimage import uniform_filter, correlate
+from scipy.ndimage import uniform_filter
 from tqdm import tqdm
 from multiprocessing import Pool
 
@@ -32,6 +32,19 @@ MAX_FUN = 400
 
 
 # Utils:
+
+def fftcorrelate(image, filter):
+    filter = np.rot90(filter, 2)
+    pad_shift = 1 - np.mod(np.array(filter.shape), 2)
+    filter_center = np.floor((np.array(filter.shape)+1)/2).astype("int")
+    pad = np.array(filter.shape) - filter_center
+    padded_image = np.zeros((image.shape[0] + 2 * pad[0], image.shape[1] + 2 * pad[1]))
+    padded_image[pad[0] : pad[0] + image.shape[0], pad[1] : pad[1] + image.shape[1]] = image
+    if np.any(pad_shift == 1):
+        padded_image = padded_image[pad_shift[0]-1:-1, pad_shift[1]-1:-1]
+    result = fftconvolve(padded_image, filter, 'valid')
+    return result
+
 
 def f_trans_2(b):
     """
@@ -707,7 +720,7 @@ class Micrograph:
         """Radial bandpass filter."""
         bandpass1d = signal.firwin(int(patch_size), np.array([0.05, 0.95]), pass_zero=False)
         bandpass2d = f_trans_2(bandpass1d)
-        micrograph = correlate(self.micrograph, bandpass2d, mode='constant')
+        micrograph = fftcorrelate(self.micrograph, bandpass2d, mode='constant')
         self.noise_mc = micrograph
 
     def estimate_rpsd(self, patch_size, max_iter):
