@@ -6,7 +6,7 @@ import warnings
 from pyfftw import FFTW
 from sys import exit
 import argparse
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import mrcfile
 import numpy as np
 import scipy.special as ssp
@@ -18,7 +18,7 @@ from scipy.fftpack import fftshift
 from scipy.ndimage import uniform_filter
 from tqdm import tqdm
 from multiprocessing import Pool
-
+from scipy.linalg import eigh
 warnings.filterwarnings("ignore")
 
 # Globals:
@@ -192,13 +192,16 @@ def trig_interpolation(x, y, xq):
     xs = x / scale
     xi = xq / scale
     p = np.zeros(xi.size)
-    for k in range(n):
-        if n % 2 == 1:
+    if n % 2 == 1:
+        for k in range(n):
             a = np.sin(n * np.pi * (xi - xs[k]) / 2) / (n * np.sin(np.pi * (xi - xs[k]) / 2))
-        else:
+            a[(xi - xs[k]) == 0] = 1
+            p = p + y[k] * a
+    else:
+        for k in range(n):
             a = np.sin(n * np.pi * (xi - xs[k]) / 2) / (n * np.tan(np.pi * (xi - xs[k]) / 2))
-        a[(xi - xs[k]) == 0] = 1
-        p = p + y[k] * a
+            a[(xi - xs[k]) == 0] = 1
+            p = p + y[k] * a
     return p
 
 
@@ -727,7 +730,7 @@ class Micrograph:
         micro_size = self.noise_mc.shape[0]
         m = np.floor(micro_size / patch_size)
         M = (m ** 2).astype(int)
-        L = int(patch_size)  # np.ceil(np.sqrt(2)*(patch_size-1)+1).astype(int)
+        L = int(patch_size)
         s = np.zeros((L, M))
         num_quads = 2 ** 9
         quad, nodes = lgwt(num_quads, -np.pi, np.pi)
@@ -828,7 +831,7 @@ class Micrograph:
             h_nodes = sqrt_rr * np.linalg.multi_dot([kltpicker.j_r_rho[:, :, n], d_rho_psd_quad_ker,
                                        kltpicker.j_r_rho[:, :, n].transpose()])
             tmp = np.linalg.multi_dot([sqrt_diag_quad_nys, h_nodes, sqrt_diag_quad_nys.transpose()])
-            eig_vals, eig_funcs = np.linalg.eig(tmp)
+            eig_vals, eig_funcs = eigh(tmp)
             eig_vals = np.real(eig_vals)
             sort_idx = np.argsort(eig_vals)
             sort_idx = sort_idx[::-1]  # Descending.
@@ -1114,7 +1117,6 @@ def main():
         print("Could not find any .mrc files in %s. \nExiting..." % args.input_dir)
         exit(0)
     picker = Picker(args)
-    args.preprocess=0
     if args.preprocess:
         print("Preprocessing...")
         picker.preprocess()
@@ -1129,41 +1131,41 @@ def main():
         print("Done cutoff filter.\nEstimating RPSD I...")
         micrograph.estimate_rpsd(picker.patch_size, picker.max_iter)
         print("Done estimating RPSD I.")
-        if picker.show_figures:
-            plt.figure(1)
-            plt.plot(micrograph.r * np.pi, micrograph.approx_clean_psd, label='Approx Clean PSD')
-            plt.title('Approx Clean PSD stage I')
-            plt.legend()
-            plt.show()
-            plt.figure(2)
-            plt.plot(micrograph.r * np.pi, micrograph.approx_noise_psd, label='Approx Noise PSD')
-            plt.title('Approx Noise PSD stage I')
-            plt.legend()
-            plt.show()
+        # if picker.show_figures:
+        #     plt.figure(1)
+        #     plt.plot(micrograph.r * np.pi, micrograph.approx_clean_psd, label='Approx Clean PSD')
+        #     plt.title('Approx Clean PSD stage I')
+        #     plt.legend()
+        #     plt.show()
+        #     plt.figure(2)
+        #     plt.plot(micrograph.r * np.pi, micrograph.approx_noise_psd, label='Approx Noise PSD')
+        #     plt.title('Approx Noise PSD stage I')
+        #     plt.legend()
+        #     plt.show()
         micrograph.approx_noise_psd = micrograph.approx_noise_psd + np.median(micrograph.approx_noise_psd) / 10
         print("Prewhitening...")
         micrograph.prewhiten_micrograph()
         print("Done prewhitening.\nEstimating RPSD II...")
         micrograph.estimate_rpsd(picker.patch_size, picker.max_iter)
         print("Done estimating RPSD II.\nConstructing KLT templates...")
-        if picker.show_figures:
-            plt.figure(3)
-            plt.plot(micrograph.r * np.pi, micrograph.approx_clean_psd, label='Approx Clean PSD')
-            plt.title('Approx Clean PSD stage II')
-            plt.legend()
-            plt.show()
-            plt.figure(4)
-            plt.plot(micrograph.r * np.pi, micrograph.approx_noise_psd, label='Approx Noise PSD')
-            plt.title('Approx Noise PSD stage II')
-            plt.legend()
-            plt.show()
+        # if picker.show_figures:
+        #     plt.figure(3)
+        #     plt.plot(micrograph.r * np.pi, micrograph.approx_clean_psd, label='Approx Clean PSD')
+        #     plt.title('Approx Clean PSD stage II')
+        #     plt.legend()
+        #     plt.show()
+        #     plt.figure(4)
+        #     plt.plot(micrograph.r * np.pi, micrograph.approx_noise_psd, label='Approx Noise PSD')
+        #     plt.title('Approx Noise PSD stage II')
+        #     plt.legend()
+        #     plt.show()
         micrograph.psd = np.abs(trig_interpolation(np.pi * micrograph.r.astype('float64'), micrograph.approx_clean_psd,
                                                    picker.rho.astype('float64')))
-        if picker.show_figures:
-            plt.figure(5)
-            plt.plot(picker.rho, micrograph.psd)
-            plt.title('Clean Sig Samp at nodes max order %i, percent of eig %f' % (picker.max_order, PERCENT_EIG_FUNC))
-            plt.show()
+        # if picker.show_figures:
+        #     plt.figure(5)
+        #     plt.plot(picker.rho, micrograph.psd)
+        #     plt.title('Clean Sig Samp at nodes max order %i, percent of eig %f' % (picker.max_order, PERCENT_EIG_FUNC))
+        #     plt.show()
         micrograph.construct_klt_templates(picker)
         print("Done constructing KLT templates.\nPicking particles...")
         num_picked_particles, num_picked_noise = micrograph.detect_particles(picker)
